@@ -14,6 +14,7 @@ pagetable_t kernel_pagetable;
 extern char etext[];  // kernel.ld sets this to end of kernel code.
 
 extern char trampoline[]; // trampoline.S
+static int count = -1;
 
 // Make a direct-map page table for the kernel.
 pagetable_t
@@ -284,6 +285,29 @@ freewalk(pagetable_t pagetable)
     }
   }
   kfree((void*)pagetable);
+}
+
+void
+vmprint(pagetable_t pagetable)
+{
+  count++;
+  if(count == 0) printf("page table %p\n", pagetable);
+  for(int i = 0; i < 512; i++){
+    pte_t pte = pagetable[i];
+    if((pte & PTE_V)){
+      // this PTE is valid.
+      uint64 child = PTE2PA(pte);
+      printf("..");
+      for(int j = 0; j < count; j++) printf(" ..");
+      printf("%d: pte %p pa %p\n", i, pte, child);
+      
+      if((pte & (PTE_R|PTE_W|PTE_X)) == 0)
+      // this PTE points to a lower-level page table.
+        vmprint((pagetable_t)child);
+    }
+  }
+  count--;
+  return;
 }
 
 // Free user memory pages,
