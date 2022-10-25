@@ -75,6 +75,39 @@ int
 sys_pgaccess(void)
 {
   // lab pgtbl: your code here.
+  uint64 bufptr;
+  int npage;
+  uint64 bitptr;
+  uint64 bitmap = 0;
+  int count = 0;
+  struct proc *p = myproc();
+  //parsing the arguments
+  argaddr(0, &bufptr);
+  argint(1, &npage);
+  argaddr(2, &bitptr);
+  //setting an upper limit on npage
+  if(npage > 64) return -1;
+  
+  for(uint64 i = bufptr; i < bufptr + npage * PGSIZE; i += PGSIZE)
+  {
+    //Finding the right pte
+    pte_t *pte = walk(p->pagetable, i, 0);
+    
+    if(*pte & PTE_A)
+    {
+      bitmap = bitmap | 1 << count;
+      //clear PTA after checking
+      *pte = (*pte) & (~PTE_A);
+      printf("%p ", *pte);
+    }
+    else printf("%p ", *pte);
+    count++;
+  }
+  printf("\n");
+  
+  //copy the bitmask to user
+  copyout(p->pagetable, bitptr, (char*)&bitmap, sizeof(bitmap));
+  
   return 0;
 }
 #endif
