@@ -98,12 +98,9 @@ sys_pgaccess(void)
       bitmap = bitmap | 1 << count;
       //clear PTA after checking
       *pte = (*pte) & (~PTE_A);
-      printf("%p ", *pte);
     }
-    else printf("%p ", *pte);
     count++;
   }
-  printf("\n");
   
   //copy the bitmask to user
   copyout(p->pagetable, bitptr, (char*)&bitmap, sizeof(bitmap));
