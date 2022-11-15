@@ -153,7 +153,7 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   for(;;){
     if((pte = walk(pagetable, a, 1)) == 0)
       return -1;
-    if(*pte & PTE_V)
+    if((*pte & PTE_V) && !(*pte & PTE_COW))
       panic("mappages: remap");
     *pte = PA2PTE(pa) | perm | PTE_V;
     if(a == last)
@@ -308,7 +308,6 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
@@ -316,14 +315,18 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
+    
+    //change pte_w flag
+    *pte = (*pte & ~PTE_W) | PTE_COW;
+    
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
+    /*if((mem = kalloc()) == 0)
       goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
+    memmove(mem, (char*)pa, PGSIZE);*/
+    if(mappages(new, i, PGSIZE, (uint64)pa, flags) != 0){
       goto err;
     }
+    ref_add((void*)pa);
   }
   return 0;
 
@@ -355,6 +358,30 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
+    if(va0 >= MAXVA) return -1;
+    
+    pte_t *pte = walk(pagetable, va0, 0);
+    if(*pte & PTE_COW) {
+      uint64 pa = PTE2PA(*pte);
+      char *mem = kalloc();
+      if(mem == 0) {
+        printf("copyout(): cannot alloc memory\n");
+        return -1;
+      }
+      memmove(mem, (char*)pa, PGSIZE);
+      
+      //setflag and mapping
+      int flag = (PTE_FLAGS(*pte) | PTE_W) & ~PTE_COW;
+      if(mappages(pagetable, va0, PGSIZE, (uint64)mem, flag) != 0) {
+        printf("copyout(): mappage failed\n");
+        kfree(mem);
+        return -1;
+      }
+      
+      //free old page
+      kfree((void*)pa);
+    }
+    
     pa0 = walkaddr(pagetable, va0);
     if(pa0 == 0)
       return -1;

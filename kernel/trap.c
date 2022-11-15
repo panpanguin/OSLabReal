@@ -65,6 +65,37 @@ usertrap(void)
     intr_on();
 
     syscall();
+  } else if(r_scause() == 15){
+    uint64 va = PGROUNDDOWN(r_stval());
+    pte_t *pte = walk(p->pagetable, va, 0);
+    
+    if(pte == 0 || (((*pte) & PTE_COW) == 0) || (((*pte) & PTE_V) == 0) || (((*pte) & PTE_U) == 0)) {
+      printf("usertrap(): not cow page\n");
+      setkilled(p);
+    }
+    
+    else {
+      //alloc and copy
+      uint64 pa = PTE2PA(*pte);
+      char *mem = kalloc();
+      if(mem == 0) {
+        printf("usertrap(): cannot alloc memory\n");
+        setkilled(p);
+      }
+      memmove(mem, (char*)pa, PGSIZE);
+      
+      //setflag and mapping
+      int flag = (PTE_FLAGS(*pte) | PTE_W) & ~PTE_COW;
+      if(mappages(p->pagetable, va, PGSIZE, (uint64)mem, flag) != 0) {
+        printf("usertrap(): mappage failed\n");
+        kfree(mem);
+        setkilled(p);
+      }
+      
+      //free old page
+      kfree((void*)pa);
+    }
+    //write fault
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {
