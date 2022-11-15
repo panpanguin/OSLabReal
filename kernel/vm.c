@@ -361,6 +361,8 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
     if(va0 >= MAXVA) return -1;
     
     pte_t *pte = walk(pagetable, va0, 0);
+    if(pte == 0 || (((*pte) & PTE_V) == 0) || (((*pte) & PTE_U) == 0)) return -1;
+    
     if(*pte & PTE_COW) {
       uint64 pa = PTE2PA(*pte);
       char *mem = kalloc();
