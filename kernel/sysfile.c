@@ -334,6 +334,34 @@ sys_open(void)
       return -1;
     }
   }
+  
+  if(!(omode & O_NOFOLLOW) && ip->type == T_SYMLINK)
+  {
+    int depth = 0;
+    while(depth < 10 && ip->type == T_SYMLINK)
+    {
+      if(readi(ip,0,(uint64)&path,0,MAXPATH)==-1)    //read string in file
+      {
+        iunlockput(ip);
+        end_op();
+        return -1;
+      }
+      iunlockput(ip);
+      if((ip = namei(path)) == 0) //if file does not exist, fail
+      {
+        end_op();
+        return -1;
+      }
+      ilock(ip);
+      depth++;
+    }
+    if(depth == 10)
+    {
+      iunlockput(ip);
+      end_op();
+      return -1;
+    }
+  }
 
   if(ip->type == T_DEVICE && (ip->major < 0 || ip->major >= NDEV)){
     iunlockput(ip);
@@ -502,4 +530,68 @@ sys_pipe(void)
     return -1;
   }
   return 0;
+}
+
+uint64
+sys_symlink(void)
+{
+  char name[DIRSIZ], target[MAXPATH], path[MAXPATH];
+  struct inode *dp, *ip, *np;
+
+  if(argstr(0, target, MAXPATH) < 0 || argstr(1, path, MAXPATH) < 0)
+    return -1;
+  
+  begin_op();
+  ip = namei(target);
+  
+  if(ip != 0){
+    ilock(ip);
+    if(ip->type == T_DIR){
+      iunlockput(ip);
+      end_op();
+      return -1;
+    }
+    iunlockput(ip);  
+  }//printf("here1\n");
+
+  if((dp = nameiparent(path, name)) == 0)
+    goto bad;
+  //printf("here2\n");
+    
+  ilock(dp);
+  //create new inode
+  
+  if((np = ialloc(dp->dev, T_SYMLINK)) == 0){
+    iunlockput(dp);
+    goto bad;
+  }//printf("here3\n");
+  
+  ilock(np);
+  np->nlink = 1;
+  iupdate(np);
+
+  if(dirlink(dp, name, np->inum) < 0){
+    iunlockput(np);
+    iunlockput(dp);
+    goto bad;
+  }//printf("here4\n");
+  if(writei(np, 0, (uint64)&target, 0, strlen(target)) != strlen(target)){
+    iunlockput(np);
+    iunlockput(dp);
+    goto bad;
+  }//printf("here5\n");
+  
+  iupdate(dp);
+  iupdate(np);
+  iunlockput(np);
+  iunlockput(dp);
+  
+  end_op();
+  //printf("here6\n");
+
+  return 0;
+
+bad:
+  end_op();
+  return -1;
 }
